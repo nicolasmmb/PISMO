@@ -16,8 +16,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var requestCounter uint64
-
 type Middleware func(http.Handler) http.Handler
 
 func Chain(h http.Handler, m ...Middleware) http.Handler {

@@ -54,7 +54,7 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(AccountResponse{
+	_ = json.NewEncoder(w).Encode(AccountResponse{
 		ID:             output.ID,
 		DocumentNumber: output.DocumentNumber,
 	})
@@ -80,7 +80,7 @@ func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AccountResponse{
+	_ = json.NewEncoder(w).Encode(AccountResponse{
 		ID:             output.ID,
 		DocumentNumber: output.DocumentNumber,
 	})

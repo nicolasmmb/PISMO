@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Could not start resource: %s", err)
 	}
 
-	resource.Expire(120)
+	_ = resource.Expire(120)
 
 	port := resource.GetPort("5432/tcp")
 	dsn := fmt.Sprintf("postgres://user_name:secret@localhost:%s/dbname?sslmode=disable", port)
@@ -148,7 +148,7 @@ func TestE2E_FullFlow(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 		var body map[string]any
-		json.NewDecoder(resp.Body).Decode(&body)
+		_ = json.NewDecoder(resp.Body).Decode(&body)
 		assert.NotEmpty(t, body["account_id"])
 	})
 

@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Could not start resource: %s", err)
 	}
 
-	resource.Expire(120) // Kill container after 120 seconds if test hangs
+	_ = resource.Expire(120) // Kill container after 120 seconds if test hangs
 
 	// 3. Connect to DB with Exponential Backoff
 	port := resource.GetPort("5432/tcp")
