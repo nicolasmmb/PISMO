@@ -1,0 +1,3 @@
+#!/bin/bash
+# Easy run script as requested by challenge.md
+exec ./scripts/start.sh

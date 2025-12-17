@@ -1,6 +1,7 @@
 package config
 
-// Config holds application configuration values.
+import "os"
+
 type Config struct {
 	Port         string
 	DBDriver     string
@@ -9,13 +10,19 @@ type Config struct {
 	OTLPEndpoint string
 }
 
-// Load returns configuration with defaults.
 func Load() Config {
 	return Config{
-		Port:         "8080",
-		DBDriver:     "postgres",
-		DBDSN:        "",
-		LogLevel:     "info",
-		OTLPEndpoint: "",
+		Port:         getEnv("PORT", "8080"),
+		DBDriver:     getEnv("DB_DRIVER", "postgres"),
+		DBDSN:        getEnv("DB_DSN", "postgres://pismo:pismo@localhost:5432/pismo?sslmode=disable"),
+		LogLevel:     getEnv("LOG_LEVEL", "info"),
+		OTLPEndpoint: getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

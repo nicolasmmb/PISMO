@@ -2,59 +2,66 @@ package usecase
 
 import (
 	"context"
-	"math"
+	"time"
 
 	"github.com/nicolasmmb/pismo-challenge/internal/domain"
 	"github.com/nicolasmmb/pismo-challenge/internal/port"
 )
 
-// CreateTransaction handles transaction creation.
 type CreateTransaction struct {
-	Accounts       port.AccountRepository
-	OperationTypes port.OperationTypeRepository
-	Transactions   port.TransactionRepository
-	Clock          port.Clock
+	Accounts           port.AccountRepository
+	OperationTypes     port.OperationTypeRepository
+	Transactions       port.TransactionRepository
+	TransactionManager port.TransactionManager
 }
 
-// Execute validates and creates a transaction.
 func (uc CreateTransaction) Execute(ctx context.Context, accountID int64, operationTypeID int, amountCents int64) (domain.Transaction, error) {
 	if amountCents <= 0 {
 		return domain.Transaction{}, ErrInvalidAmount
 	}
 
-	_, err := uc.Accounts.FindByID(ctx, accountID)
+	var tx domain.Transaction
+
+	err := uc.TransactionManager.RunInTransaction(ctx, func(txCtx context.Context) error {
+		if _, err := uc.Accounts.FindByIDForUpdate(txCtx, accountID); err != nil {
+			return err
+		}
+
+		op, err := uc.OperationTypes.FindByID(txCtx, operationTypeID)
+		if err != nil {
+			return err
+		}
+
+		if op.Sign != -1 && op.Sign != 1 {
+			return ErrInvalidOperation
+		}
+
+		normalized := amountCents
+		if op.Sign < 0 {
+			normalized = -amountCents
+		}
+
+		now := time.Now()
+		tx = domain.Transaction{
+			AccountID:       accountID,
+			OperationTypeID: operationTypeID,
+			AmountCents:     normalized,
+			EventDate:       now,
+			CreatedAt:       now,
+		}
+
+		id, err := uc.Transactions.Create(txCtx, tx)
+		if err != nil {
+			return err
+		}
+
+		tx.ID = id
+		return nil
+	})
+
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 
-	op, err := uc.OperationTypes.FindByID(ctx, operationTypeID)
-	if err != nil {
-		return domain.Transaction{}, err
-	}
-	if op.Sign != -1 && op.Sign != 1 {
-		return domain.Transaction{}, ErrInvalidOperation
-	}
-
-	normalized := amountCents
-	if op.Sign < 0 {
-		normalized = -int64(math.Abs(float64(amountCents)))
-	} else {
-		normalized = int64(math.Abs(float64(amountCents)))
-	}
-
-	tx := domain.Transaction{
-		AccountID:       accountID,
-		OperationTypeID: operationTypeID,
-		AmountCents:     normalized,
-		EventDate:       uc.Clock.Now(),
-		CreatedAt:       uc.Clock.Now(),
-	}
-
-	id, err := uc.Transactions.Create(ctx, tx)
-	if err != nil {
-		return domain.Transaction{}, err
-	}
-
-	tx.ID = id
 	return tx, nil
 }

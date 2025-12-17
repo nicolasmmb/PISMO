@@ -2,7 +2,6 @@ package domain
 
 import "time"
 
-// Transaction represents a financial event tied to an account.
 type Transaction struct {
 	ID              int64
 	AccountID       int64
