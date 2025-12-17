@@ -35,6 +35,9 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Download Dependencies
+        run: go mod download
+
       - name: Tidy Dependencies
         run: go mod tidy
 
@@ -47,10 +50,11 @@ jobs:
           fi
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.55
+          version: v1.61
           args: --timeout=5m
 
       - name: Run Unit & Integration Tests
         run: go test -v -race ./...
+
