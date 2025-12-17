@@ -66,7 +66,7 @@ func main() {
 	}
 	fmt.Printf("✅ Test account created: ID %d\n", accountID)
 
-	fmt.Println("\n🔥 Running Benchmarks Concurrently...\n")
+	fmt.Println("\n🔥 Running Benchmarks Concurrently...")
 
 	// Run all benchmarks concurrently
 	results := runConcurrentBenchmarks(config, accountID)
