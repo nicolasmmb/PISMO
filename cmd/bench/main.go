@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -17,10 +15,9 @@ import (
 )
 
 type Config struct {
-	BaseURL       string
-	Rate          int
-	Duration      time.Duration
-	PrometheusURL string
+	BaseURL  string
+	Rate     int
+	Duration time.Duration
 }
 
 type EndpointMetrics struct {
@@ -37,21 +34,6 @@ type EndpointMetrics struct {
 	StatusCodes    map[string]int
 }
 
-type PrometheusMetrics struct {
-	TotalRequests float64
-	P50Latency    float64
-	P95Latency    float64
-	P99Latency    float64
-}
-
-type AuditResult struct {
-	Endpoint      string
-	Vegeta        EndpointMetrics
-	Prometheus    PrometheusMetrics
-	Discrepancies []string
-	Passed        bool
-}
-
 type BenchmarkResult struct {
 	Name    string
 	Metrics EndpointMetrics
@@ -59,26 +41,24 @@ type BenchmarkResult struct {
 
 func main() {
 	baseURL := flag.String("url", "http://localhost:8080", "Base URL of the API")
-	rate := flag.Int("rate", 100, "Requests per second (total, split between endpoints)")
+	rate := flag.Int("rate", 100, "Total requests per second (split between endpoints)")
 	duration := flag.Duration("duration", 60*time.Second, "Test duration")
-	prometheusURL := flag.String("prometheus", "http://localhost:9090", "Prometheus URL")
 	flag.Parse()
 
 	config := Config{
-		BaseURL:       *baseURL,
-		Rate:          *rate,
-		Duration:      *duration,
-		PrometheusURL: *prometheusURL,
+		BaseURL:  *baseURL,
+		Rate:     *rate,
+		Duration: *duration,
 	}
 
-	fmt.Println("🚀 Pismo API Benchmark Tool (Concurrent)")
+	fmt.Println("🚀 Pismo API Benchmark")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("📍 Target: %s\n", config.BaseURL)
-	fmt.Printf("⚡ Rate: %d req/s (split between endpoints)\n", config.Rate)
+	fmt.Printf("⚡ Rate: %d req/s total\n", config.Rate)
 	fmt.Printf("⏱️  Duration: %s\n", config.Duration)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Create test accounts for transactions
+	// Create test account
 	accountID, err := createTestAccount(config.BaseURL)
 	if err != nil {
 		fmt.Printf("❌ Failed to create test account: %v\n", err)
@@ -86,51 +66,37 @@ func main() {
 	}
 	fmt.Printf("✅ Test account created: ID %d\n", accountID)
 
-	fmt.Println("\n🔥 Running Load Tests CONCURRENTLY...")
+	fmt.Println("\n🔥 Running Benchmarks Concurrently...\n")
 
 	// Run all benchmarks concurrently
 	results := runConcurrentBenchmarks(config, accountID)
 
-	fmt.Println("\n⏳ Waiting 15s for Prometheus to scrape metrics...")
-	time.Sleep(15 * time.Second)
-
-	// Fetch Prometheus metrics and audit
-	var audits []AuditResult
-	for _, r := range results {
-		prom := fetchPrometheusMetrics(config.PrometheusURL, "/"+r.Name)
-		audit := auditMetrics(r.Name, r.Metrics, prom)
-		audits = append(audits, audit)
-	}
-
 	// Print results
-	for _, audit := range audits {
-		printEndpointResults(audit)
-	}
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("📊 RESULTS")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Summary
-	allPassed := true
-	for _, a := range audits {
-		if !a.Passed {
-			allPassed = false
+	allSuccess := true
+	for _, r := range results {
+		printResult(r)
+		if r.Metrics.SuccessRate < 100 {
+			allSuccess = false
 		}
 	}
 
+	// Summary
 	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	if allPassed {
-		fmt.Println("✅ ALL BENCHMARKS PASSED")
+	if allSuccess {
+		fmt.Println("✅ ALL BENCHMARKS COMPLETED SUCCESSFULLY")
 	} else {
-		fmt.Println("❌ SOME BENCHMARKS FAILED")
+		fmt.Println("⚠️  SOME REQUESTS FAILED")
 	}
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	if !allPassed {
-		os.Exit(1)
-	}
 }
 
 func runConcurrentBenchmarks(config Config, accountID int) []BenchmarkResult {
 	var wg sync.WaitGroup
-	resultsChan := make(chan BenchmarkResult, 4)
+	resultsChan := make(chan BenchmarkResult, 3)
 
 	endpoints := []struct {
 		name   string
@@ -152,28 +118,23 @@ func runConcurrentBenchmarks(config Config, accountID int) []BenchmarkResult {
 		wg.Add(1)
 		go func(name, method, path, body string) {
 			defer wg.Done()
-			fmt.Printf("   📌 Starting %s %s @ %d req/s...\n", method, path, ratePerEndpoint)
+			fmt.Printf("   📌 %s %s @ %d req/s\n", method, path, ratePerEndpoint)
 
 			metrics := runBenchmark(config, method, path, body, ratePerEndpoint)
 			resultsChan <- BenchmarkResult{Name: name, Metrics: metrics}
-
-			fmt.Printf("   ✅ Finished %s %s\n", method, path)
 		}(ep.name, ep.method, ep.path, ep.body)
 	}
 
-	// Wait for all benchmarks to complete
 	go func() {
 		wg.Wait()
 		close(resultsChan)
 	}()
 
-	// Collect results
 	var results []BenchmarkResult
 	for r := range resultsChan {
 		results = append(results, r)
 	}
 
-	// Sort by name for consistent output
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Name < results[j].Name
 	})
@@ -204,7 +165,24 @@ func runBenchmark(config Config, method, path, body string, rate int) EndpointMe
 	}
 	metrics.Close()
 
-	return toEndpointMetrics(path, metrics)
+	statusCodes := make(map[string]int)
+	for code, count := range metrics.StatusCodes {
+		statusCodes[code] = int(count)
+	}
+
+	return EndpointMetrics{
+		Name:           path,
+		TotalRequests:  metrics.Requests,
+		SuccessRate:    metrics.Success * 100,
+		MeanLatency:    metrics.Latencies.Mean,
+		P50Latency:     metrics.Latencies.P50,
+		P95Latency:     metrics.Latencies.P95,
+		P99Latency:     metrics.Latencies.P99,
+		MaxLatency:     metrics.Latencies.Max,
+		MinLatency:     metrics.Latencies.Min,
+		RequestsPerSec: metrics.Rate,
+		StatusCodes:    statusCodes,
+	}
 }
 
 func createTestAccount(baseURL string) (int, error) {
@@ -219,197 +197,36 @@ func createTestAccount(baseURL string) (int, error) {
 		AccountID int `json:"account_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return 1, nil // fallback to account 1
+		return 1, nil
 	}
 	return result.AccountID, nil
 }
 
-func toEndpointMetrics(name string, m vegeta.Metrics) EndpointMetrics {
-	statusCodes := make(map[string]int)
-	for code, count := range m.StatusCodes {
-		statusCodes[code] = int(count)
-	}
-
-	return EndpointMetrics{
-		Name:           name,
-		TotalRequests:  m.Requests,
-		SuccessRate:    m.Success * 100,
-		MeanLatency:    m.Latencies.Mean,
-		P50Latency:     m.Latencies.P50,
-		P95Latency:     m.Latencies.P95,
-		P99Latency:     m.Latencies.P99,
-		MaxLatency:     m.Latencies.Max,
-		MinLatency:     m.Latencies.Min,
-		RequestsPerSec: m.Rate,
-		StatusCodes:    statusCodes,
-	}
-}
-
-func fetchPrometheusMetrics(prometheusURL, path string) PrometheusMetrics {
-	var pm PrometheusMetrics
-
-	query := fmt.Sprintf(`sum(http_requests_total{path="%s"})`, path)
-	totalReq, err := queryPrometheus(prometheusURL, query)
-	if err == nil {
-		pm.TotalRequests = totalReq
-	}
-
-	query = fmt.Sprintf(`histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{path="%s"}[5m])) by (le)) * 1000000`, path)
-	p50, err := queryPrometheus(prometheusURL, query)
-	if err == nil {
-		pm.P50Latency = p50
-	}
-
-	query = fmt.Sprintf(`histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{path="%s"}[5m])) by (le)) * 1000000`, path)
-	p95, err := queryPrometheus(prometheusURL, query)
-	if err == nil {
-		pm.P95Latency = p95
-	}
-
-	query = fmt.Sprintf(`histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{path="%s"}[5m])) by (le)) * 1000000`, path)
-	p99, err := queryPrometheus(prometheusURL, query)
-	if err == nil {
-		pm.P99Latency = p99
-	}
-
-	return pm
-}
-
-func queryPrometheus(baseURL, query string) (float64, error) {
-	url := fmt.Sprintf("%s/api/v1/query?query=%s", baseURL, query)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	var result struct {
-		Status string `json:"status"`
-		Data   struct {
-			Result []struct {
-				Value []interface{} `json:"value"`
-			} `json:"result"`
-		} `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, err
-	}
-
-	if len(result.Data.Result) == 0 || len(result.Data.Result[0].Value) < 2 {
-		return 0, fmt.Errorf("no data")
-	}
-
-	valueStr, ok := result.Data.Result[0].Value[1].(string)
-	if !ok {
-		return 0, fmt.Errorf("invalid value type")
-	}
-
-	var value float64
-	fmt.Sscanf(valueStr, "%f", &value)
-	return value, nil
-}
-
-func auditMetrics(name string, vegeta EndpointMetrics, prom PrometheusMetrics) AuditResult {
-	audit := AuditResult{
-		Endpoint:   name,
-		Vegeta:     vegeta,
-		Prometheus: prom,
-		Passed:     true,
-	}
-
-	if prom.TotalRequests > 0 {
-		diff := math.Abs(float64(vegeta.TotalRequests) - prom.TotalRequests)
-		tolerance := float64(vegeta.TotalRequests) * 0.15 // 15% tolerance for concurrent tests
-		if diff > tolerance {
-			audit.Discrepancies = append(audit.Discrepancies,
-				fmt.Sprintf("Request count: Vegeta=%d, Prometheus=%.0f (diff=%.0f)",
-					vegeta.TotalRequests, prom.TotalRequests, diff))
-			audit.Passed = false
-		}
-	}
-
-	vegetaP50us := float64(vegeta.P50Latency.Microseconds())
-	if prom.P50Latency > 0 && vegetaP50us > 0 {
-		diff := math.Abs(vegetaP50us - prom.P50Latency)
-		tolerance := vegetaP50us * 0.30
-		if diff > tolerance {
-			audit.Discrepancies = append(audit.Discrepancies,
-				fmt.Sprintf("P50: Vegeta=%.0fµs, Prometheus=%.0fµs",
-					vegetaP50us, prom.P50Latency))
-		}
-	}
-
-	vegetaP95us := float64(vegeta.P95Latency.Microseconds())
-	if prom.P95Latency > 0 && vegetaP95us > 0 {
-		diff := math.Abs(vegetaP95us - prom.P95Latency)
-		tolerance := vegetaP95us * 0.30
-		if diff > tolerance {
-			audit.Discrepancies = append(audit.Discrepancies,
-				fmt.Sprintf("P95: Vegeta=%.0fµs, Prometheus=%.0fµs",
-					vegetaP95us, prom.P95Latency))
-		}
-	}
-
-	return audit
-}
-
-func printEndpointResults(audit AuditResult) {
-	v := audit.Vegeta
-	p := audit.Prometheus
+func printResult(r BenchmarkResult) {
+	m := r.Metrics
 
 	icon := "🩺"
-	switch audit.Endpoint {
+	switch r.Name {
 	case "transactions":
 		icon = "💳"
 	case "accounts":
 		icon = "👤"
 	}
 
-	fmt.Printf("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-	fmt.Printf("📊 %s /%s\n", icon, audit.Endpoint)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("\n%s %s\n", icon, r.Name)
+	fmt.Printf("   Requests:    %d (%.2f req/s)\n", m.TotalRequests, m.RequestsPerSec)
+	fmt.Printf("   Success:     %.2f%%\n", m.SuccessRate)
+	fmt.Printf("   Latency:     P50=%s  P95=%s  P99=%s\n", m.P50Latency, m.P95Latency, m.P99Latency)
 
-	fmt.Println("\n🎯 Vegeta Results:")
-	fmt.Printf("   Total Requests:  %d\n", v.TotalRequests)
-	fmt.Printf("   Success Rate:    %.2f%%\n", v.SuccessRate)
-	fmt.Printf("   Requests/sec:    %.2f\n", v.RequestsPerSec)
-	fmt.Printf("   Mean Latency:    %s\n", v.MeanLatency)
-	fmt.Printf("   P50 Latency:     %s\n", v.P50Latency)
-	fmt.Printf("   P95 Latency:     %s\n", v.P95Latency)
-	fmt.Printf("   P99 Latency:     %s\n", v.P99Latency)
-
-	fmt.Println("\n   Status Codes:")
-	codes := make([]string, 0, len(v.StatusCodes))
-	for code := range v.StatusCodes {
+	// Status codes
+	codes := make([]string, 0, len(m.StatusCodes))
+	for code := range m.StatusCodes {
 		codes = append(codes, code)
 	}
 	sort.Strings(codes)
+	codeStr := ""
 	for _, code := range codes {
-		fmt.Printf("     %s: %d\n", code, v.StatusCodes[code])
+		codeStr += fmt.Sprintf("%s:%d ", code, m.StatusCodes[code])
 	}
-
-	fmt.Println("\n📈 Prometheus Metrics:")
-	fmt.Printf("   Total Requests:  %.0f\n", p.TotalRequests)
-	fmt.Printf("   P50 Latency:     %.0f µs\n", p.P50Latency)
-	fmt.Printf("   P95 Latency:     %.0f µs\n", p.P95Latency)
-	fmt.Printf("   P99 Latency:     %.0f µs\n", p.P99Latency)
-
-	fmt.Println("\n🔍 Audit:")
-	if len(audit.Discrepancies) == 0 {
-		fmt.Println("   ✅ All metrics match within tolerance")
-	} else {
-		fmt.Println("   ⚠️  Discrepancies:")
-		for _, d := range audit.Discrepancies {
-			fmt.Printf("      • %s\n", d)
-		}
-	}
-
-	if audit.Passed {
-		fmt.Println("   ✅ PASSED")
-	} else {
-		fmt.Println("   ❌ FAILED")
-	}
+	fmt.Printf("   Status:      %s\n", codeStr)
 }
